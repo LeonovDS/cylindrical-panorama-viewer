@@ -3,7 +3,6 @@
   "version": "0.0.1",
   "description": "Cylindrical panorama viewer for web based on three.js",
   "main": "./build/cylindrical-panorama-viewer.js",
-  "types": "./build/types.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "rollup -c rollup.config.mjs"
