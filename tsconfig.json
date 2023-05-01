@@ -1,9 +1,10 @@
 {
-    "compilerOptions": {
-        "target": "ES5",
-        "module": "esnext",
-        "sourceMap": true,
-        "resolveJsonModule": true,
-        "esModuleInterop": true,
-    }
+  "compilerOptions": {
+    "target": "ES6",
+    "module": "esnext",
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "removeComments": true
+  }
 }
