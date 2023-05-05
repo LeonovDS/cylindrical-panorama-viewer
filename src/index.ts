@@ -26,13 +26,22 @@ class PanoramaViewer {
   private texture: THREE.Texture;
   private textureLoader: THREE.TextureLoader = new THREE.TextureLoader();
 
-  public longitude: number;
+  private longitude: number;
 
   private labels: Label[] = [];
   private labelRoot: HTMLElement;
 
   private isAnimating = false;
 
+  /**
+   * Constructor
+   * @param parent The parent element of the viewer.
+   * @param imageURL The URL of the image to display.
+   * @param initialLongitude The initial rotation of the image in radians.
+   * @param distortion The distortion of the image. Adds stretching on the left and right sides.
+   * @param enableControls Whether to enable mouse and keyboard controls.
+   * @param labels List of labels to add to the viewer.
+   */
   constructor(
     parent: HTMLElement,
     imageURL: string,
@@ -56,13 +65,62 @@ class PanoramaViewer {
       this.initControls();
   }
 
+  /**
+  * Starts the animation loop.
+  */
   public startAnimationLoop() {
     this.isAnimating = true;
     requestAnimationFrame(() => this.animationLoop());
   }
 
+  /**
+  * Stops the animation loop.
+  */
   public stopAnimationLoop() {
     this.isAnimating = false;
+  }
+
+  /**
+  * Sets the image to display.
+  * @param imageUrl The URL of the image to display.
+  * @param initialLongitude The initial rotation of the image in radians.
+  */
+  public setImage(imageUrl: string, initialLongitude: number = 0) {
+    this.loadImage(imageUrl, initialLongitude);
+  }
+
+  /**
+  * Removes all labels from the viewer.
+  */
+  public clearLabels() {
+    this.labels = [];
+    this.labelRoot.replaceChildren();
+  }
+
+  /**
+  * Adds labels to the viewer.
+  * @param labels The labels to add.
+  */
+  public addLabels(labels: Label[]) {
+    this.labels = this.labels.concat(labels);
+    this.labelRoot.replaceChildren(
+      //      ...this.labels.map((v, _, __) => v.root),  // TODO: Check if breaks without this line :)
+      ...labels.map((v, _, __) => v.root)
+    );
+    this.updateLabelPositions();
+  }
+
+  /**
+  * Sets rotation of the image in radians.
+  * @param longitude New rotation of the image in radians.
+  */
+  public setLongitude(longitude: number) {
+    this.longitude = this.to_range(longitude);
+  }
+
+  public async animateTo(longitude: number, duration: number) {
+    const startTime = Date.now();
+
   }
 
   private animationLoop() {
@@ -73,10 +131,7 @@ class PanoramaViewer {
       requestAnimationFrame(() => this.animationLoop());
   }
 
-  public setImage(imageUrl: string, initialLongitude: number = 0) {
-    this.loadImage(imageUrl, initialLongitude);
-  }
-
+  // TODO: Change loading order
   private loadImage(imageURL: string, initialLongitude: number) {
     this.texture = this.textureLoader.load(imageURL, (txt) => this.onTextureLoaded(txt, initialLongitude));
   }
@@ -163,6 +218,7 @@ class PanoramaViewer {
     })
   }
 
+  // TODO: Extract all controls to a separate class
   private initControls() {
     const elem = this.renderer.domElement;
     elem.focus();
@@ -207,17 +263,6 @@ class PanoramaViewer {
         this.longitude %= 2 * Math.PI;
       }
     });
-  }
-
-  public clearLabels() {
-    this.labels = [];
-    this.labelRoot.replaceChildren();
-  }
-
-  public addLabels(labels: Label[]) {
-    this.labels = this.labels.concat(labels);
-    this.labelRoot.replaceChildren(...this.labels.map((v, i, _) => v.root), ...labels.map((v, i, _) => v.root));
-    this.updateLabelPositions();
   }
 
   private to_range(value: number) {
