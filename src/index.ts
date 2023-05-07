@@ -1,202 +1,229 @@
 'use strict';
 import * as THREE from 'three';
-import { Label } from './label';
+import {Label} from './label';
+import {toRange} from "./util";
+import {MouseController, IController, SimpleController} from "./controller";
 
+// Default height of cylinder
 const DEFAULT_H: number = 1;
+// Default distortion coefficient
 const DEFAULT_DISTORTION: number = 1.1;
+// Default number of sides of cylinder
 const CYLINDER_SIDES: number = 128;
+// Default vertical FOV of camera
 const DEFAULT_FOV: number = THREE.MathUtils.degToRad(55);
 
 class PanoramaViewer {
-  private renderer: THREE.WebGLRenderer = new THREE.WebGLRenderer({ antialias: true });
-  private camera: THREE.PerspectiveCamera;
-  private scene: THREE.Scene;
+  private readonly renderer: THREE.WebGLRenderer = new THREE.WebGLRenderer({antialias: true});
+  private readonly camera: THREE.PerspectiveCamera;
+  private readonly scene: THREE.Scene;
+  // Cylinder mesh used to display panorama
   private mesh: THREE.Mesh;
+  // Controls rotation of panorama
+  public controller: IController;
 
+  // Vertical FOV of camera
   private fov: number = DEFAULT_FOV;
+  // Horizontal FOV of camera
   private horizontalFov: number;
-  private distortion: number;
+  // Distortion coefficient
+  private readonly distortion: number;
+  // Aspect ratio of render area
   private aspectRatio: number;
 
+  // Radius of cylinder
   private cylinderRadius: number;
+  // Height of cylinder
   private cylinderHeight: number;
+  // Distance from center of cylinder to camera
   private cameraRadius: number;
+  // Number of how many times image is repeated along cylinder surface
   private repeatCount: number = 1;
 
+  // Image texture of panorama
   private texture: THREE.Texture;
   private textureLoader: THREE.TextureLoader = new THREE.TextureLoader();
 
-  private longitude: number;
-
+  // List of labels placed on panorama
   private labels: Label[] = [];
-  private labelRoot: HTMLElement;
+  // Root div for label elements
+  private readonly labelRoot: HTMLElement;
 
-  private isAnimating = false;
+  // animation loop is running
+  private isAnimating: boolean = false;
+  // image is being loaded
+  private _isLoadingImage: boolean = false;
 
   /**
    * Constructor
-   * @param parent The parent element of the viewer.
-   * @param imageURL The URL of the image to display.
-   * @param initialLongitude The initial rotation of the image in radians.
-   * @param distortion The distortion of the image. Adds stretching on the left and right sides.
-   * @param enableControls Whether to enable mouse and keyboard controls.
-   * @param labels List of labels to add to the viewer.
+   * @param parent The parent element of viewer.
+   * @param distortion The distortion of image. Adds stretching on left and right sides.
    */
   constructor(
     parent: HTMLElement,
-    imageURL: string,
-    initialLongitude: number = 0,
     distortion: number = DEFAULT_DISTORTION,
-    enableControls: boolean = false,
-    labels: Label[] = [],) {
+  ) {
     parent.appendChild(this.renderer.domElement);
-
     this.labelRoot = document.createElement('div');
     parent.appendChild(this.labelRoot);
-    this.addLabels(labels);
+    this.initCallbacks();
+
+    // TODO: Make this configurable
+    this.controller = new MouseController(0, this.renderer.domElement);
+    this.camera = new THREE.PerspectiveCamera(THREE.MathUtils.radToDeg(this.fov));
+    this.scene = new THREE.Scene();
 
     this.distortion = distortion;
-    this.loadImage(imageURL, initialLongitude);
-
-    this.onResize();
-
-    this.initCallbacks();
-    if (enableControls)
-      this.initControls();
   }
 
   /**
-  * Starts the animation loop.
-  */
+   * Shows image is being loaded
+   */
+  public get isLoadingImage(): boolean {
+    return this._isLoadingImage;
+  }
+
+  /**
+   * Starts animation loop.
+   */
   public startAnimationLoop() {
     this.isAnimating = true;
     requestAnimationFrame(() => this.animationLoop());
   }
 
   /**
-  * Stops the animation loop.
-  */
+   * Stops animation loop.
+   */
   public stopAnimationLoop() {
     this.isAnimating = false;
   }
 
   /**
-  * Sets the image to display.
-  * @param imageUrl The URL of the image to display.
-  * @param initialLongitude The initial rotation of the image in radians.
-  */
-  public setImage(imageUrl: string, initialLongitude: number = 0) {
-    this.loadImage(imageUrl, initialLongitude);
+   * Sets image to display.
+   * @param imageUrl The URL of image to display.
+   * @param initialLongitude The initial rotation of image in radians.
+   * @param newLabels List of labels to add to viewer after loading image.
+   * @param onLoaded Callback to be called when image is loaded.
+   */
+  public setImage(imageUrl: string, initialLongitude: number = 0, newLabels: Label[] = [], onLoaded: () => void = () => {
+  }) {
+    this.loadImage(imageUrl, initialLongitude, newLabels, onLoaded);
   }
 
   /**
-  * Removes all labels from the viewer.
-  */
+   * Removes all labels from viewer.
+   */
   public clearLabels() {
     this.labels = [];
     this.labelRoot.replaceChildren();
   }
 
   /**
-  * Adds labels to the viewer.
-  * @param labels The labels to add.
-  */
+   * Adds labels to viewer.
+   * @param labels The labels to add.
+   */
   public addLabels(labels: Label[]) {
     this.labels = this.labels.concat(labels);
     this.labelRoot.replaceChildren(
-      //      ...this.labels.map((v, _, __) => v.root),  // TODO: Check if breaks without this line :)
-      ...labels.map((v, _, __) => v.root)
+      ...this.labels.map((v, _, __) => v.root),
     );
-    this.updateLabelPositions();
   }
 
   /**
-  * Sets rotation of the image in radians.
-  * @param longitude New rotation of the image in radians.
-  */
+   * Sets rotation of image in radians.
+   * @param longitude New rotation of image in radians.
+   */
   public setLongitude(longitude: number) {
-    this.longitude = this.to_range(longitude);
+    this.controller.longitude = toRange(longitude);
   }
 
-  public async animateTo(longitude: number, duration: number) {
-    const startTime = Date.now();
-
-  }
-
+  /**
+   * One iteration of animation loop.
+   * @private
+   */
   private animationLoop() {
-    this.texture.offset.set(this.repeatCount / 2 + this.longitude % (2 * Math.PI) / 2 / Math.PI, 0);
+    this.texture.offset.set(this.repeatCount / 2 + this.controller.longitude % (2 * Math.PI) / 2 / Math.PI, 0);
     this.renderer.render(this.scene, this.camera);
     this.updateLabelPositions();
     if (this.isAnimating)
       requestAnimationFrame(() => this.animationLoop());
   }
 
-  // TODO: Change loading order
-  private loadImage(imageURL: string, initialLongitude: number) {
-    this.texture = this.textureLoader.load(imageURL, (txt) => this.onTextureLoaded(txt, initialLongitude));
+  /**
+   * Loads image texture.
+   * @param imageURL The URL of image to load.
+   * @param initialLongitude The initial rotation of image in radians.
+   * @param newLabels List of labels to add to viewer after loading image.
+   * @param onLoaded Called when image is loaded.
+   * @private
+   */
+  private loadImage(imageURL: string, initialLongitude: number, newLabels: Label[], onLoaded: () => void) {
+    this._isLoadingImage = true;
+    const isAnimating = this.isAnimating;
+    this.stopAnimationLoop();
+    this.texture = this.textureLoader.load(imageURL, (txt) => {
+      this.onTextureLoaded(txt, initialLongitude);
+      this.clearLabels();
+      this.addLabels(newLabels);
+      if (isAnimating)
+        this.startAnimationLoop();
+      this._isLoadingImage = false;
+      onLoaded();
+    });
   }
 
+  /**
+   * Called when texture is loaded.
+   * @param txt Loaded texture.
+   * @param initialLongitude The initial rotation of image in radians.
+   * @private
+   */
   private onTextureLoaded(txt: THREE.Texture, initialLongitude: number) {
-    this.longitude = initialLongitude;
-    this.updateTexture(txt);
-    this.onResize();
+    this.texture = txt;
+    this.controller.longitude = initialLongitude;
+    this.update();
+    this.startAnimationLoop();
   }
 
-  private updateTexture(txt: THREE.Texture) {
-    this.repeatCount = 2 * Math.PI * this.cylinderRadius / this.cylinderHeight / txt.image.width * txt.image.height;
-    console.log("repeat count: " + this.repeatCount);
-    txt.repeat.setX(-this.repeatCount);
-    txt.wrapS = THREE.RepeatWrapping;
-    txt.flipY = true;
+  /**
+   * Updates everything after image loaded or after window resized.
+   * @private
+   */
+  private update() {
+    this.updateRenderer();
+    this.calculateSceneParameters();
+    this.updateTexture();
+    this.updateScene();
+    this.updateCamera();
   }
 
-  private onResize() {
+  /**
+   * Updates renderer parameters
+   * @private
+   */
+  private updateRenderer() {
     const width = this.renderer.domElement.parentElement.clientWidth;
     const height = this.renderer.domElement.parentElement.clientHeight;
     this.renderer.setSize(width, height);
     this.aspectRatio = width / height;
-
-    this.calculateSceneParameters();
-    this.setupCamera();
-    this.setupScene();
-    if (this.texture.image) {
-      this.repeatCount = 2 * Math.PI * this.cylinderRadius / this.cylinderHeight / this.texture.image.width * this.texture.image.height;
-      this.texture.repeat.setX(-this.repeatCount);
-      console.log("repeat count: " + this.repeatCount);
-    }
   }
 
-  private setupCamera() {
-    this.camera = new THREE.PerspectiveCamera(THREE.MathUtils.radToDeg(this.fov));
-    this.camera.aspect = this.aspectRatio;
-    this.camera.lookAt(0, 0, 1);
-    // this.camera.position.set(0, 0, 0);
-    this.camera.position.set(0, this.cylinderHeight / 200, this.cameraRadius);
-    // TODO: Change camera y position to fix black strips on edges
-    this.camera.updateProjectionMatrix();
+  /**
+   * Updates texture parameters.
+   * @private
+   */
+  private updateTexture() {
+    this.repeatCount = 2 * Math.PI * this.cylinderRadius / this.cylinderHeight / this.texture.image.width * this.texture.image.height;
+    console.log("repeat count: " + this.repeatCount);
+    this.texture.repeat.setX(-this.repeatCount);
+    this.texture.wrapS = THREE.RepeatWrapping;
+    this.texture.flipY = true;
   }
 
-  private setupScene() {
-    this.scene = new THREE.Scene();
-    const cylinderGeometry = new THREE.CylinderGeometry(
-      this.cylinderRadius, this.cylinderRadius,
-      this.cylinderHeight,
-      CYLINDER_SIDES,
-      1,
-      true,
-    );
-    cylinderGeometry.rotateZ(-Math.PI);
-    cylinderGeometry.rotateX(Math.PI);
-
-    const material = new THREE.MeshBasicMaterial({ map: this.texture, side: THREE.DoubleSide });
-    this.mesh = new THREE.Mesh(
-      cylinderGeometry,
-      material
-    );
-    this.mesh.position.set(0, 0, 0);
-    this.scene.add(this.mesh);
-  }
-
+  /**
+   * Calculates geometric parameters of scene.
+   * @private
+   */
   private calculateSceneParameters() {
     const fov = this.fov;
     const aspectRatio = this.aspectRatio;
@@ -212,67 +239,58 @@ class PanoramaViewer {
     this.cameraRadius = r;
   }
 
+  /**
+   * Rebuilds scene.
+   * @private
+   */
+  private updateScene() {
+    this.scene.clear();
+    const cylinderGeometry = new THREE.CylinderGeometry(
+      this.cylinderRadius, this.cylinderRadius,
+      this.cylinderHeight,
+      CYLINDER_SIDES,
+      1,
+      true,
+    );
+    cylinderGeometry.rotateZ(-Math.PI);
+    cylinderGeometry.rotateX(Math.PI);
+
+    const material = new THREE.MeshBasicMaterial({map: this.texture, side: THREE.DoubleSide});
+    this.mesh = new THREE.Mesh(
+      cylinderGeometry,
+      material
+    );
+    this.mesh.position.set(0, 0, 0);
+    this.scene.add(this.mesh);
+  }
+
+  /**
+   * Places camera on scene.
+   * @private
+   */
+  private updateCamera() {
+    this.camera.aspect = this.aspectRatio;
+    this.camera.position.set(0, 0, 0);
+    this.camera.lookAt(0, 0, 1);
+    this.camera.position.set(0, this.cylinderHeight / 200, this.cameraRadius);
+    // TODO: Change camera y position to fix black strips on edges
+    this.camera.updateProjectionMatrix();
+  }
+
+  /**
+   * Initializes callbacks. (For now only onResize)
+   * @private
+   */
   private initCallbacks() {
     window.addEventListener('resize', () => {
-      this.onResize();
-    })
-  }
-
-  // TODO: Extract all controls to a separate class
-  private initControls() {
-    const elem = this.renderer.domElement;
-    elem.focus();
-
-    let isPressed = false;
-    let lastPosition = 0;
-    elem.addEventListener('mousedown', (event) => {
-      isPressed = true;
-      lastPosition = event.clientX;
-    });
-    elem.addEventListener('mousemove', (event) => {
-      if (isPressed) {
-        this.longitude -= (event.clientX - lastPosition) * 0.001;
-        this.longitude %= 2 * Math.PI;
-        lastPosition = event.clientX;
-      }
-    });
-    elem.addEventListener('mouseup', (event) => {
-      isPressed = false;
-    });
-    elem.addEventListener('touchstart', (event) => {
-      isPressed = true;
-      lastPosition = event.targetTouches[0].clientX;
-    });
-    elem.addEventListener('touchmove', (event) => {
-      if (isPressed) {
-        this.longitude -= (event.targetTouches[0].clientX - lastPosition) * 0.001;
-        this.longitude %= 2 * Math.PI;
-        lastPosition = event.targetTouches[0].clientX;
-      }
-    });
-    elem.addEventListener('touchup', (event) => {
-      isPressed = false;
-    });
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'ArrowLeft') {
-        this.longitude -= 0.01;
-        this.longitude %= 2 * Math.PI;
-      }
-      if (event.key === 'ArrowRight') {
-        this.longitude += 0.01;
-        this.longitude %= 2 * Math.PI;
-      }
+      this.update();
     });
   }
 
-  private to_range(value: number) {
-    let a = (value % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
-    if (a > Math.PI) {
-      a -= 2 * Math.PI;
-    }
-    return a;
-  }
-
+  /**
+   * Updates label positions and visibility.
+   * @private
+   */
   private updateLabelPositions() {
     this.labels.forEach(element => {
       const width = this.renderer.domElement.width;
@@ -281,15 +299,15 @@ class PanoramaViewer {
       const H = this.cylinderHeight;
 
       const alpha = element.position.x * 2 * Math.PI;
-      const beta = this.to_range(this.longitude);
-      const delta = this.to_range(alpha - beta);
-      let phi = this.to_range(-delta / this.repeatCount);
+      const beta = toRange(this.controller.longitude);
+      const delta = toRange(alpha - beta);
+      let phi = toRange(-delta / this.repeatCount);
 
       const position = new THREE.Vector3(
         R * Math.sin(phi),
         H / 2 * element.position.y,
         R * Math.cos(phi),
-      )
+      );
 
       const projected = position.project(this.camera);
       const x = width / 2 * (1 + projected.x) - element.root.offsetWidth / 2;
@@ -306,8 +324,4 @@ class PanoramaViewer {
   }
 }
 
-export { Label, PanoramaViewer };
-
-module.exports = {
-  Label, PanoramaViewer
-};
+export {Label, PanoramaViewer, IController, SimpleController, MouseController};

@@ -1,10 +1,11 @@
 {
   "compilerOptions": {
+    "outDir": "",
     "target": "ES6",
     "module": "esnext",
     "sourceMap": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "removeComments": true
+    "declaration": true,
   }
 }
